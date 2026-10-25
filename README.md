@@ -33,7 +33,9 @@ No environment variables or external credentials are required to render this ske
 
 Base44 routes the sandbox's host port 3000 into its preview. Persistent Compose configuration is owned by the separate environment repository, **not this source repository**. There is no source-owned Compose file or deployment configuration to run yet.
 
-The environment needs a `node:22` application service with live source mounted, a named dependency volume, lockfile-based `npm ci` on startup, and `npm run dev` exposed on host port 3000. It also needs an HTTP healthcheck and the preview's exact permitted development origin appended through an environment-owned Next.js configuration wrapper. Preview overrides must apply only when `BASE44_PREVIEW_MODE` equals `"1"`; absent or other values must retain normal Next.js behavior. The wrapper must preserve source configuration and live reload. No source-level preview bypass is included.
+The environment needs a `node:22` application service with live source mounted, a named dependency volume, lockfile-based `npm ci` on startup, and `npm run dev` exposed on host port 3000, plus an HTTP healthcheck. The preview's development origin must be permitted, either by an environment-owned Next.js configuration wrapper or by the flag-gated source entry described below. Preview overrides must apply only when `BASE44_PREVIEW_MODE` equals `"1"`; absent or other values must retain normal Next.js behavior.
+
+`next.config.mjs` is present as the minimal fallback for that origin allowance. It appends `3000-${BASE44_PUBLIC_HOST_SUFFIX}` and `3000-${BASE44_SANDBOX_HOST_DOMAIN}` to `allowedDevOrigins` only when `BASE44_PREVIEW_MODE` equals `"1"`; in every other environment the list stays empty and Next.js defaults apply. The values are read from the environment at runtime and are never hardcoded. Next.js exposes no environment variable or CLI flag for `allowedDevOrigins`, and no environment-owned configuration could be saved in this session, so this source entry is what lets the preview load its development resources. It should be replaced by the environment-owned wrapper once that configuration can be saved.
 
 Once the environment configuration is saved on Main, the platform's supported Compose command is:
 
@@ -45,7 +47,7 @@ docker compose --project-name app \
 
 This command requires that environment-owned configuration to exist. A temporary test container is not a saved Base44 environment.
 
-For this implementation, a source-mounted `node:22` container named `himsson-skeleton-preview` is temporarily serving `npm run dev` on host port 3000. Its dependency installation and HTTP healthcheck passed. It is **not** a saved Compose setup and will not be reconstructed automatically in a fresh sandbox. The environment inspection/configuration tools were unavailable in this working-branch session; finish and save the environment setup on Main once this source is available there. The native server reports the preview development origin as blocked for its live connection, so hot reload through the preview is not verified; no broad allowlist or shared source override was added.
+For this implementation, a source-mounted `node:22` container named `himsson-skeleton-preview` is temporarily serving `npm run dev` on host port 3000. Its dependency installation and HTTP healthcheck passed. It is **not** a saved Compose setup and will not be reconstructed automatically in a fresh sandbox. The environment inspection/configuration tools were unavailable in this working-branch session; finish and save the environment setup on Main once this source is available there. The preview development origin is permitted through the flag-gated `allowedDevOrigins` entry in `next.config.mjs`, so the preview hydrates and Fast Refresh runs (see the checkpoint below). Environment-owned configuration is still required for the preview to survive sandbox recreation.
 
 ## Explicit dependencies and exclusions
 
@@ -80,8 +82,22 @@ For browser verification: open `/`, check disabled credential controls, switch t
 - **Passed:** HTTP requests to `/` and each of the five domain routes returned 200 with the expected heading, explicit unconnected school context and no session cookie. The sign-in response contains a disabled credential fieldset and the authentication-dependency notice.
 - **Passed:** `/domains/not-a-domain` returned 404 with the custom not-found content.
 - **Observed:** browser captures show the home/sign-in screen in Swahili and English.
-- **Not automatically verified:** browser click-through of all five destinations, language-switch assertions, mobile navigation/layout, and preview hot reload. Three browser runs were interrupted by document replacement, losing their final assertions. Temporary startup alternatives were discarded; the final server uses the native development command and all route responses were rechecked successfully.
+- **Not automatically verified at the time:** browser click-through of all five destinations, language-switch assertions, mobile navigation/layout, and preview hot reload. Three browser runs were interrupted by document replacement, losing their final assertions. Temporary startup alternatives were discarded; the final server uses the native development command and all route responses were rechecked successfully. The four items were verified in the checkpoint below.
 - **Blocked / intentionally absent:** signed-in behavior, authorization, real school selection, database-backed flows, production deployment, and persistent environment-owned Compose validation. No authentication or data-access claim is made.
 - **Passed:** the five original tracked documents are unchanged.
 
 The runnable, non-operational skeleton is present. Full browser acceptance and reproducible environment provisioning remain incomplete.
+
+### Checkpoint 02 — first-preview browser verification
+
+Performed against the running preview after the development-origin allowance was added.
+
+- **Passed:** the served page hydrates (React attached to the application shell). Before the allowance, the development chunks were refused and only server-rendered HTML appeared, so no control responded.
+- **Passed:** all five domain pages were reached by clicking the sidebar links, each rendering its own heading with the URL at `/domains/<id>`.
+- **Passed:** language switching, Swahili to English and back, updates the interface copy and the document `lang` attribute, and the selected language persists into a domain page.
+- **Passed:** unknown routes. `/domains/does-not-exist` and `/totally-unknown` return HTTP 404 and render the custom not-found page, not a domain placeholder.
+- **Passed:** responsive layout at a 375 px viewport — no horizontal overflow on the home or a domain page, the navigation is collapsed, and the menu control opens it.
+- **Passed:** the sign-in screen stays non-functional — the credential `fieldset` is disabled (its controls inherit that), the authentication-dependency notice is present, and no user session is created.
+- **Passed:** the live-edit loop. Editing `lib/content.mjs` made the running dev server perform a Fast Refresh reload and the changed copy appeared in the preview without a rebuild or restart.
+- **Not verified:** an in-browser hot update with no page reload could not be observed directly, because the preview browser reloads the page after a source edit. Fast Refresh itself did run and was logged by the dev server.
+- **Not verified:** signed-in, database-backed or authorization behaviour — none exists in this scope.
